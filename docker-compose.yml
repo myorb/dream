@@ -1,0 +1,169 @@
+data:
+    image: dmitrymomot/docker-data
+    volumes:
+        # - /root/.ssh
+        - /root/.composer
+        # - ~/.ssh/config:/root/.ssh/config:ro
+        - ~/.ssh/id_rsa_pswd_less:/root/.ssh/id_rsa:ro
+        - ~/.ssh/known_hosts:/root/.ssh/known_hosts:rw
+        - ~/.composer/auth.json:/root/.composer/auth.json:rw
+        - ./:/data/www:rw
+        - ./xhprof:/data/xhprof:rw
+        - ./app/storage/logs:/data/logs:rw
+        - ./public/uploads:/data/www/public/uploads:rw
+        - ./tests/api.suite.yml.local:/data/www/tests/api.suite.yml:ro
+        - ./app/config/local/database.php.docker:/data/www/app/config/local/database.php:ro
+        - ./composer.json.local:/data/www/composer.json:rw
+    command: "true"
+
+php:
+    image: dmitrymomot/php-fpm-xhprof
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+    restart: always
+
+db:
+    image: mariadb
+    environment:
+        MYSQL_ROOT_PASSWORD: root
+        MYSQL_DATABASE: washe
+        MYSQL_USER: washe
+        MYSQL_PASSWORD: washe
+    volumes:
+        - ./app/database/dumps/docker:/docker-entrypoint-initdb.d
+    restart: always
+    privileged: true
+
+memcached:
+    image: memcached
+    restart: always
+
+redis:
+    image: redis
+    restart: always
+
+api:
+    hostname: api.washe.dev
+    domainname: api.washe.dev
+    image: dmitrymomot/nginx
+    environment:
+        VIRTUAL_HOST: api.washe.dev
+    volumes_from:
+        - data
+    links:
+        - php:fpm
+        - queues
+    restart: always
+
+deps:
+    image: dmitrymomot/composer
+    command: clear-cache
+    command: update --ignore-platform-reqs -vv
+    working_dir: /data/www
+    volumes_from:
+        - data
+
+migrations:
+    image: dmitrymomot/laravel-artisan:php5
+    command: migrate --seed --env=local
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+
+migrations-v2:
+    image: dmitrymomot/laravel-artisan:php5
+    command: migrate --seed --env=local --package="washe/api-v2"
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+
+migrations-v3:
+    image: dmitrymomot/laravel-artisan:php5
+    command: migrate --seed --env=local --package="washe/api-v3"
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+
+tests:
+    image: dmitrymomot/codeception
+    command: run api --fail-fast
+    # command: run api
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - api
+
+apidoc:
+    image: dmitrymomot/apidoc
+    command: -v -i vendor/washe/api-v3/src/controllers/ -o public/doc/v3/
+    working_dir: /data/www
+    volumes_from:
+        - data
+
+composer:
+    image: dmitrymomot/composer
+    volumes_from:
+        - data
+
+artisan:
+    image: dmitrymomot/laravel-artisan:php5
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+
+pma:
+    image: phpmyadmin/phpmyadmin
+    links:
+        - db:db
+    environment:
+        VIRTUAL_HOST: pma.washe.dev
+        MYSQL_USERNAME: root
+        MYSQL_ROOT_PASSWORD: root
+        MAX_UPLOAD: "512M"
+        # MYSQL_USER:
+        # MYSQL_PASSWORD:
+    restart: always
+
+queues:
+    image: dmitrymomot/laravel-artisan:php5
+    command: queue:listen --env=local
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+    restart: always
+
+sockets:
+    image: dmitrymomot/laravel-artisan:php5
+    command: socket:notifier --env=local
+    working_dir: /data/www
+    volumes_from:
+        - data
+    links:
+        - db
+        - memcached
+        - redis
+    restart: always
